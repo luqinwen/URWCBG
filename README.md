@@ -61,7 +61,7 @@ func finishReq(timeout time.Duration) r ob{
     }
 }
 ```
-![图1 由channel引起的阻塞错误](.README_images/图一.png)
+![图1 由channel引起的阻塞错误](README_images/图一.png)
 
 这个错误演示了在Go中使用新特性的复杂性，以及像这样编写正确的Go程序的困难。
 程序员必须对使用匿名函数创建goroutine，Go简化goroutine创建的特性，缓冲与非缓冲通道的使用，使用select等待多通道操作的非确定性，以及特殊的时间库有一个清晰的理解。
