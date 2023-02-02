@@ -92,7 +92,7 @@ Go的RWMutex的实现与C语言中的pthread_rwlock_t不同。Go中的写锁请�
 与C中的pthread_join类似，Go使用WaitGroup允许多个goroutine在等待的goroutine之前完成其共享变量访问。
 通过调用Add将Goroutine添加到WaitGroup。WaitGroup中的goroutine使用Done来通知其完成，而goroutine调用Wait来等待WaitGroup内所有goroutine的完成通知。
 误用WaitGroup会导致阻塞错误（第5节）和非阻塞错误（6节）。
-### 与消息传递的同步
+### 2.3 与消息传递的同步
 通道（chan）是Go引入的一种新的并发原语，用于跨发送数据和状态，并构建更复杂的功能。
 Go支持两种类型的通道：缓冲和非缓冲。
 向非缓冲通道发送数据（或从其接收）数据将阻塞一个协程，直到另一个协程从该通道接收数据（或发送数据）。
