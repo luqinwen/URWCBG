@@ -303,8 +303,8 @@ gRPC Go在786个位置使用八种不同类型的原语（每个KLOC使用14.8�
 总的来说，随着时间的推移，
 这些用法趋于稳定，这也意味着我们的研究结果将对未来的Go程序员有价值。
 
-![图2 随着时间的推移，共享内存原语的使用。](.README_images/figure2.png)
-![图3 随着时间的推移，消息传递原语的使用。 ](.README_images/figure3.png)
+![图2 随着时间的推移，共享内存原语的使用。](README_images/figure2.png)
+![图3 随着时间的推移，消息传递原语的使用。 ](README_images/figure3.png)
 
 **发现2**：尽管传统的共享内存线程通信和同步仍然被大量使用，但Go程序员也使用大量的消息传递原语。
 
@@ -408,7 +408,7 @@ gRPC Go在786个位置使用八种不同类型的原语（每个KLOC使用14.8�
 我们还发现，报告这些错误的时间接近修复它们的时间。这些结果表明，我们研究的大多数错误都不容易被触发或检测到，但一旦被触发，它们很快就被修复了。
 因此，我们认为这些bug是非常重要的，值得仔细研究。
 
-![bug的生存时间](.README_images/figure4.png)
+![bug的生存时间](README_images/figure4.png)
 
 **复制并发错误**。为了评估内置的死锁和数据竞争检测技术，我们复制了21个阻塞错误和20个非阻塞错误。
 为了重现bug，我们将应用程序回滚到bug版本，构建bug版本，并使用bug报告中描述的bug触发输入运行构建的程序。
@@ -534,3 +534,59 @@ A和B都无法继续。
 
 五个阻塞错误是由这个原因引起的。注意，由于pthread_rwlock_t在默认设置下优先处理读锁请求，相同的交错锁定模式不会导致C中pthread_rwlock_t的阻塞错误。
 RWMutex阻塞错误类型意味着，即使Go使用与传统语言相同的并发语义，由于Go对语义的新实现，仍然可能存在新类型的错误。
+
+<u>等待</u> 三个阻塞错误是由于等待操作无法继续。与Mutex和RWMutex相关的bug不同，它们不涉及循环等待。当Cond用于保护共享内存访问并且一个goroutine调用Cond.Wait（）时，
+会出现其中两个错误，但之后没有其他goroutine会调用Cond.Signal（）（或Cond.Broadcast（））。
+
+第三个bug，Docker#25384，发生在使用WaitGroup类型的共享变量时，如图5所示。
+只有当第5行的Done（）被调用len（pm.plugins）次时，第7行的Wait（）才能解除阻止，因为len（pm.plugin）被用作第2行调用Add（）的参数。
+然而，Wait（）在循环中被调用，因此它在以后的迭代中阻止在第4行创建goroutine，并阻止在每个创建的goroutine中调用Done（）。
+修复此错误的方法是将Wait（）的调用从循环中移出。
+
+
+```go
+    var group sync.WaitGroup
+    group.Add((len(pm.plugins)))
+    for _, p := range pm.plugins {
+        go func(p *plugin) {
+            defer group.Done()
+        }()
+        group.Wait()
+    }
+    group.Wait()
+```
+
+![](README_images/f5.png)
+
+尽管条件变量和线程组等待都是传统的并发技术，但我们怀疑Go的新编程模型是程序员产生这些并发错误的原因之一。
+例如，与pthread_join不同，它是一个显式等待（命名）线程完成的函数调用，WaitGroup是一个可以在goroutine之间共享的变量，它的Wait函数隐式等待Done函数。
+
+**发现4**：大多数由共享内存同步引起的阻塞错误与传统语言的原因和修复方法相同。
+然而，由于Go对现有原语的新实现或其新的编程语义，其中一些语言与传统语言不同。
+
+#### 5.1.2 错误使用消息传递
+
+我们现在讨论由消息传递错误引起的阻塞错误，这与我们所研究的应用程序中阻塞错误的主要类型相反。
+使用Channel在goroutine之间传递消息时出错导致29个阻塞错误。
+许多与Channel相关的阻塞错误是由于缺少发送Channel（或从Channel接收）或关闭Channel导致的，这将导致阻塞等待从Channel接收（或发送到频道）的goroutine。
+图1就是一个这样的例子。
+
+当结合Go特殊库的使用时，通道创建和goroutine阻塞可能隐藏在库调用中。
+如图6所示，在第1行创建了一个新的上下文对象hcancel。
+同时创建一个新的goroutine，消息可以通过hcancel的channel字段发送到新的goroutine。
+如果第4行的超时值大于0，则在第5行创建另一个上下文对象，并且hcancel指向新对象。
+之后，就无法向或关闭附加到旧对象的goroutine发送消息。
+补丁是为了避免在超时大于0时创建额外的上下文对象。
+```go
+    hctx, hcancel := context.WithCancel(ctx)
+	var hctx context.Context
+	var hcancel context.CancelFunc
+	if timeout > 0 {
+		hctx,hcancel = context.WithTimeout(ctx, timeout)
+    }else{
+	    hctx, hcancel = context.WithCancel
+}
+```
+
+![](README_images/f6.png)
+
